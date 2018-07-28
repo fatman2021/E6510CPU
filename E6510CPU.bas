@@ -1,4 +1,6 @@
 ' E6510CPU.bas
+#define Hex2Float( Number ) *Cptr(Single ptr,@Number)
+#define Float2Hex( Number ) *Cptr(UInteger ptr,@Number)
 
 #ifdef _DEBUG
 # define dprint(msg) open err for output as #99:print #99,"debug: " & msg:close #99
@@ -7,6 +9,7 @@
 #endif
 
 dim shared as integer screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate
+dim shared as integer clr, red = &HFF, green = &HFF, blue = &HFF, xalpha = &HFF
 dim shared as string driverName
 
 type MEMORY_T
@@ -199,6 +202,7 @@ constructor C64_T
   dim as integer i,c
   dprint("C64_T()")
   screenres 320+8*8, 200+8*8,8
+  screenInfo screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
   for i=0 to 15
     read c:palette i,c
   next
@@ -248,8 +252,14 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
     adr-=&HD800:col(adr)=v
     adr+=1024:v=ram(adr)
   end if
-
-
+  select case bits_perPixel
+   case 1, 2, 4, 8
+	clr = col(adr)
+   case 15, 16, 24
+    clr = rgb(red, green, blue)
+   case 32
+    clr = rgba(red, green, blue, xalpha) 
+  end select
   select case adr
     case 1024 to 2023
       adr-=1024
@@ -262,7 +272,7 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
           if char(c) and (128 shr x) then
             pset(xs+x,ys+y),3
           else
-            pset(xs+x,ys+y),col(adr)
+            pset(xs+x,ys+y),clr
           end if
         next
         c+=1
@@ -279,14 +289,11 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 			  for p as integer = 0 to (size - 1)
 			    ram(((segment * 16) + source) + p) = ram(((segment * 16) + dest) + p)
 			  next
-			  for offset = adr + 1 to adr + 16: ram(offset)=0:next 
 			case &H02 ' Screen mode [, [ depth ] [, [ num_pages ] [, [ flags ] [, [ refresh_rate ]]]]]
 			 screen ram(adr + 1), ram(adr + 2), ram(adr + 3), ram(adr + 4), ram(adr + 5)
 			 screenInfo screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
-			 for offset = adr + 1 to adr + 5: ram(offset)=0:next
 			case &H03 ' Screen , [ active_page ] [, [ visible_page ]]
 			 screen , ram(adr + 1), ram(adr + 2)
-			 ram(adr + 1) = 0: ram(adr + 2) = 0
 			case &H04 ' Screenres ( byval width as long, byval height as long, byval depth as long = 8,
 			          '             byval num_pages as long = 1, byval flags as long = 0, 
 			          '             byval refresh_rate as long = 0 ) as long
@@ -321,15 +328,13 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
                   clr = ram(adr + 10) * &H1000000 + ram(adr + 11) * &H10000 + ram(adr + 12) * &H100 + ram(adr + 13)     
              end select  
              draw string (xs, ys), strData, clr
-             for offset = adr + 1 to adr + 13: ram(offset)=0:next
             case &H06 ' Cls ( byval mode as long = 1 )
-             cls ram(adr + 1): ram(adr + 1) = 0  
+             cls ram(adr + 1)  
             case &H07 ' WaitKey ascii_code
-             do until inkey$ = chr$(ram(adr+1)): loop: ram(adr + 1) = 0
+             do until inkey$ = chr$(ram(adr+1)): loop
             case &H08 ' Sleep ( byval amount as long , byval keyflag as long ) as long
              sleep ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4), _ ' amount
 			       ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)    ' keyflag
-			 for offset = adr + 1 to adr + 8: ram(offset)=0:next      
 			case &H09 ' ImageCreate ( byval width as long, byval height as long, byval color as ulong = transparent_color, 
 			          '               byval depth as long ) as any ptr
 			 offset       =  ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
@@ -337,11 +342,9 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 			                             ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11), _ ' heigth
 			                             ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15), _ ' color 
 			                             ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19))   ' depth
-			 for offset = adr + 1 to adr + 19: ram(offset)=0:next                            
 		    case &H0A ' ImageDestroy ( byval image as any ptr )
 			 offset       =  ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
 			 imagedestroy(vram(offset))
-			 ram(adr + 1) = 0: ram(adr + 2) = 0: ram(adr + 3) = 0
 		    case &H0B '	Inkey ( ) as string
 		     ram(adr+1) = asc(inkey$): ram(adr+1)=0
 		    case &H0C ' PSet [target ,] [STEP] (x, y) [,color]
@@ -351,7 +354,6 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 		     ys     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
 		     clr    = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' color
 		     pset vram(offset), (xs, ys), clr
-		     for offset = adr + 1 to adr + 15: ram(offset)=0:next
 		    case &H0D ' Put [target, ] [ [STEP](x, y), source [, (x1, y1)-[STEP](x2, y2) ] [, method [, ( alphaval|value|blender [, param]) ] ]     		          	                                          
 		     dim as integer xs, ys, target, source, method, value
 		     target = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
@@ -378,7 +380,6 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 		      case &H07
 		       put vram(target), (xs, ys), vram(source),add,value
 		     end select
-		     for offset = adr + 1 to adr + 16: ram(offset)=0:next
 		    case &H0E ' Put [target, ] [ [STEP](x, y), source [, (x1, y1)-[STEP](x2, y2) ] [, method [, ( alphaval|value|blender [, param]) ] ]     		          	                                          
 		     dim as integer xs, ys, target, source, method, value
 		     source = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' source
@@ -404,12 +405,49 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 		      case &H07
 		       put (xs, ys), vram(source),add,value
 		     end select
-		     for offset = adr + 1 to adr + 16: ram(offset)=0:next
 		    case &H0F ' cleanVram
 		     frame_no =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' num_frames
 		     for offset = 1 to frame_no
 				imagedestroy vram(offset) 
              next
+             for offset = 1 to 4
+              ram(adr + offset) = 0
+             next 
+            case &H10' rgba
+             red = ram(adr +  1): blue = ram(adr +  2): green = ram(adr +  3): xalpha = ram(adr + 4)
+            case &H11' Clear BIOS memory buffer
+             dim as integer length 
+             length =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' number of bytes to clear
+             for offset = 1 to length
+			  ram(offset) = 0 	
+             next
+            case &H12 ' Line [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
+             dim as integer x1, y1, x2, y2, clr
+             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
+		     x1     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x1
+		     y1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y1
+		     x2     = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
+		     y2     = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
+		     clr    = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' color
+             line vram(offset), (x1, y1)-(x2, y2), clr
+            case &H13 ' Box [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
+             dim as integer x1, y1, x2, y2, clr
+             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
+		     x1     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x1
+		     y1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y1
+		     x2     = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
+		     y2     = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
+		     clr    = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' color
+             line vram(offset), (x1, y1)-(x2, y2), clr, B
+            case &H14 ' Bar [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
+             dim as integer x1, y1, x2, y2, clr
+             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
+		     x1     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x1
+		     y1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y1
+		     x2     = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
+		     y2     = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
+		     clr    = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' color
+             line vram(offset), (x1, y1)-(x2, y2), clr, BF
 		end select
   end select
 end sub
