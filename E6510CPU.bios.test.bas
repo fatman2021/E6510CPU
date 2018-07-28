@@ -1,5 +1,5 @@
 10 a$ = "press <cr> to exit."
-20 adr = 16384: rem bios address 
+20 adr = 53248: rem bios address 
 30 gosub 200: X = 8: y=8
 40 rem display message
 50 for a=1 to len(a$)
@@ -23,7 +23,7 @@
 230 poke adr+12,32: poke adr,4
 240 return
 
-10 adr=16384: rem bios
+10 adr=53248: rem bios
 20 rem imagecreate
 30 poke adr+3,1: rem offset in vram
 40 poke adr+7,255: rem width
@@ -46,3 +46,4 @@
 210 poke adr+11,0: rem y
 220 poke adr+12,0: rem method
 220 poke adr,14: rem call put
+
