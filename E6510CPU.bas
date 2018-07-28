@@ -1,4 +1,4 @@
-' c64.bas
+' E6510CPU.bas
 
 #ifdef _DEBUG
 # define dprint(msg) open err for output as #99:print #99,"debug: " & msg:close #99
