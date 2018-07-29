@@ -47,3 +47,19 @@
 220 poke adr+12,0: rem method
 220 poke adr,14: rem call put
 
+10 adr=53248: rem bios
+20 rem string address: 53300
+30 poke adr+3,208: poke adr+4,52
+40 file$="TEST.BMP"
+50 poke adr+8,len(file$)
+60 for i=0 to len(file$)-1
+70 poke 53300+I,asc(mid$(file$,i+1,1))
+80 next i
+90 poke adr+12,0
+100 poke adr,23 : rem call bload
+
+address D400
+screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
+0h           40h           80h         C0h            100h            140h         180h
+mouseX, mouseY, mouseWheel, mouseButtons, mouseClip
+238h    27Ah     698        2BAh          33Ah
