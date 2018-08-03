@@ -1,0 +1,1 @@
+..\fbc lisp.bas lisp_int.bas lisp_ctx.bas lisp_lexer.bas lisp_object.bas lisp_objects.bas lisp_parser.bas lisp_funcs.bas lisp_eval.bas lisp_runtime_console.bas lisp_runtime_data.bas lisp_runtime_list.bas lisp_runtime_math.bas lisp_runtime_prog.bas lisp_runtime_system.bas -lib -i ../inc -g -d DEBUG -w pedantic -exx -x ../lib/dos/liblisp.a

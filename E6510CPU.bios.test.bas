@@ -1,10 +1,10 @@
 10 a$ = "press <cr> to exit."
-20 adr = 53248: rem bios address 
+20 adr = 679: rem bios address 
 30 gosub 200: X = 8: y=8
 40 rem display message
 50 for a=1 to len(a$)
 60 poke adr+4,x: poke adr+8,y
-70 poke adr+9,asc(mki$(a$,a,1))
+70 poke adr+9,asc(mid$(a$,a,1))
 80 for b=10 to 17 
 90 poke adr+b,255
 100 next b
@@ -23,7 +23,7 @@
 230 poke adr+12,32: poke adr,4
 240 return
 
-10 adr=53248: rem bios
+10 adr=679: rem bios
 20 rem imagecreate
 30 poke adr+3,1: rem offset in vram
 40 poke adr+7,255: rem width
@@ -47,7 +47,7 @@
 220 poke adr+12,0: rem method
 220 poke adr,14: rem call put
 
-10 adr=53248: rem bios
+10 adr=679: rem bios
 20 rem string address: 53300
 30 poke adr+3,208: poke adr+4,52
 40 file$="TEST.BMP"

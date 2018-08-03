@@ -1,6 +1,4 @@
 ' E6510CPU.bas
-#define Hex2Float( Number ) *Cptr(Single ptr,@Number)
-#define Float2Hex( Number ) *Cptr(UInteger ptr,@Number)
 
 #ifdef _DEBUG
 # define dprint(msg) open err for output as #99:print #99,"debug: " & msg:close #99
@@ -8,13 +6,15 @@
 # define dprint(msg) :
 #endif
 
-dim shared as integer screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate
-dim shared as integer mouseX, mouseY, mouseWheel, mouseButtons, mouseClip, mouseVisibility
-dim shared as integer target, source, size, frame_no, tran_color, xs, ys, method, value
-dim shared as integer clr, red = &HFF, green = &HFF, blue = &HFF, xalpha = &HFF, b, c, i
-dim shared as integer x1, y1,x2, y2, x, y, length, radius
-dim shared as uinteger string_adr, adr, segment, offset, v
-dim shared as string driverName, strData
+'global data table
+dim shared as uinteger r0,r1,r2=16,r3=8,r4,r5,r6,r7,r8,r9,r10
+dim shared as uinteger r11,r12,r13,r14,r15,r16,r17,r18,r19,r20
+dim shared as uinteger r21,r22,r23,r24,r25,r26,r27=&HFF,r28=&HFF
+dim shared as uinteger r29=&HFF,r30=&HFF,r31,r32,r33,r34,r35,r36,r37
+dim shared as uinteger exitflag,interface_keyboard,targetkey,jumpadr,keyBufferPos
+dim shared as uinteger string_adr, adr, adr2, offset, prgctr=&HD022
+dim shared as string   driverName, strData
+Dim shared as ubyte    keyBuffer(15)
 
 type MEMORY_T
   public:
@@ -29,7 +29,7 @@ type MEMORY_T
 
   private:
   declare function Peek64(byval adr as integer) as uinteger
-  declare sub      Poke64(byval adr as integer, byval v as uinteger)
+  declare sub      Poke64(byval adr as integer, byval r34 as uinteger)
 #if 0
   const as integer os_end     = &HFFFF '------|
   const as integer os_base    = &HE000 '  8 K | KERNAL ROM or RAM (adr 0 bit1=0 RAM bit1=1 ROM
@@ -148,7 +148,7 @@ type CPU6510
   declare function ADR_INDX  as uinteger
   declare function ADR_INDY  as uinteger
   declare function ADR_UNK   as uinteger ' unknow
-  declare sub      Push   (byval v as ubyte)
+  declare sub      Push   (byval r34 as ubyte)
   declare function Pull      as ubyte
 
   union ' status register P
@@ -205,11 +205,11 @@ data &Ha7a3a7,&Hbfb7fb,&Hffa397,&He7efe9
 constructor C64_T
   dprint("C64_T()")
   screenres 320+8*8, 200+8*8,8
-  screenInfo screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
-  for i=0 to 15
-    read c:palette i,c
+  screenInfo r15, r16, r17, r18, r19, r20, driverName
+  for r33=0 to 15
+    read r32:palette r33,r32
   next
-  line (0,0)-(319+8*8,199+8*8),3,bf
+  line (0,0)-(319+8*8,199+8*8),16,bf
   mem=new MEMORY_T
   cpu=new CPU6510(mem)
 end constructor
@@ -222,13 +222,13 @@ destructor C64_T
 end destructor
 
 constructor MEMORY_T
-  ' init all ROM's
+  'init all ROM's
   restore KERNAL_ROM
-  for i=0 to 8191:read kernal(i): next 'print i, kernal(i), chr$(kernal(i)): sleep: next: end
+  for r33=0 to 8191:read kernal(r33): next 'print r33, kernal(r33), chr$(kernal(r33)): sleep: next: end
   restore BASIC_ROM
-  for i=0 to 8191:read basic(i):next
+  for r33=0 to 8191:read basic(r33):next
   restore CHAR_ROM
-  for i=0 to 2047:read char(i):next
+  for r33=0 to 2047:read char(r33):next
   Poke64(0,255):Poke64(1,255)
 end constructor
 
@@ -241,64 +241,64 @@ function MEMORY_T.Peek64(byval adr as integer) as uinteger
   case &H0000E000 to &H0000FFFF:return kernal(adr-&H0000E000)
   case &H0000A000 to &H0000BFFF:return basic (adr-&H0000A000)
   case &H0000D800 to &H0000DBFF:return col   (adr-&H0000D800)
-  case &H0000D000 to &H10FFFFFF        
+  case &H0000D000 to &H10FFFFFF     
     dim as integer reg=adr and &H003f
     if reg=&H12 then return 0 else return &HFF
   case else : return ram(adr)
   end select
 end function
 
-sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
-  ram(adr)=v
-  if adr>=&HD800 and adr<=&HDBFF then
-    adr-=&HD800:col(adr)=v
-    adr+=1024:v=ram(adr)
+sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
+  ram(adr)=r34
+  if adr>=&H0000D800 and adr<=&H0000DBFF then
+    adr-=&H0000D800:col(adr)=r34
+    adr+=&H00000400:r34=ram(adr)
   end if
-  select case bits_perPixel
-   case 1, 2, 4, 8
-	clr = col(adr)
+  select case r18
+   case 1, 2, 4
+    r3 = col(adr)
+   case 8
+	r3  = (r27 * 7 / 255) shl 5 + (r28 * 7 / 255) shl 2 + (r29 * 3 / 255)
    case 15, 16, 24
-    clr = rgb(red, green, blue)
-   case 32
-    clr = rgba(red, green, blue, xalpha) 
+    r3 = r27 * &H10000 + r28 * &H100 + r29
+   case 24, 32
+    r3 = r30 * &H1000000 + r27 * &H10000 + r28 * &H100 + r29   
   end select
   select case adr
-    case 1024 to 2023
-      adr-=1024
-      c=v:c shl=3
-      xs=adr mod 40:xs shl =3:xs+=8*4
-      ys=adr  \  40:ys shl =3:ys+=8*4
+    case &H00000400 to &H000007E7
+      adr-=&H00000400
+      r32=r34:r32 shl=3
+      r0=adr mod 40:r0 shl =3:r0+=8*4
+      r1=adr  \  40:r1 shl =3:r1+=8*4
+    
       screenlock
-      for y = 0 to 7
-        for x = 0 to 7
-          if char(c) and (128 shr x) then
-            pset(xs+x,ys+y),3
+      for r36 = 0 to 7
+        for r37 = 0 to 7
+          if char(r32) and (128 shr r37) then
+            pset(r0+r37,r1+r36),r3
           else
-            pset(xs+x,ys+y),clr
+            pset(r0+r37,r1+r36),r2
           end if
         next
-        c+=1
+        r32+=1
       next
-      screenunlock ys,ys+8
-      case &HD000 ' BIOS
-		select case v
+      screenunlock r1,r1+8
+      case &H02A7 ' BIOS 
+       select case r34
 			case &H01 ' Memcopy source, target, segment, size
-			  source  = ram(adr + 1) * &H10000 + ram(adr + 2) * &H100 + ram(adr + 3)
-			  target    = ram(adr + 4) * &H10000 + ram(adr + 5) * &H100 + ram(adr + 6)
-			  segment = ram(adr + 7) * &H10000 + ram(adr + 8) * &H100 + ram(adr + 9)
-			  size    = ram(adr + 7)
-			  for p as integer = 0 to (size - 1)
-			    ram(((segment * 16) + source) + p) = ram(((segment * 16) + target) + p)
+			  r4 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
+			  r5 = ram(adr +  4) * &H10000 + ram(adr +  5) * &H100 + ram(adr +  6)
+			  r6 = ram(adr +  7) * &H10000 + ram(adr +  8) * &H100 + ram(adr +  9)
+			  r7 = ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12)
+			  for p as integer = 0 to (r7 - 1)
+			    ram(((r6 * 16) + r4) + p) = ram(((r6 * 16) + r5) + p)
 			  next
 			case &H02 ' Screen mode [, [ depth ] [, [ num_pages ] [, [ flags ] [, [ refresh_rate ]]]]]
 			 screen ram(adr + 1), ram(adr + 2), ram(adr + 3), ram(adr + 4), ram(adr + 5)
-			 screenInfo screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
-			 ram(&HD400) = screenWidth: ram(&HD400 + &H40) = screenHeight: ram(&HD400 + &H80) = colorDepth
-			 ram(&HD400 + &HC0) = bits_perPixel: ram(&HD400 + &H100) = scanlineLength: ram(&HD400 + &H140) = refreshRate
-			 for i = 0 to len(driverName) - 1
-			   ram(&HD400 + &H180 + i) = asc(mid$(driverName, i, 1))
-			 next i
-			 screenInfo screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
+			 screenInfo r15, r16, r17, r18, r19, r20, driverName
+			 for r33 = 0 to len(driverName) - 1
+			   ram(&HD400 + &H180 + r33) = asc(mid$(driverName, r33, 1))
+			 next r33
 			case &H03 ' Screen , [ active_page ] [, [ visible_page ]]
 			 screen , ram(adr + 1), ram(adr + 2)
 			case &H04 ' Screenres ( byval width as long, byval height as long, byval depth as long = 8,
@@ -310,33 +310,31 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 			            ram(adr + 13) * &H1000000 + ram(adr + 14) * &H10000 + ram(adr + 15) * &H100 + ram(adr + 16), _ ' num_pages
 			            ram(adr + 17) * &H1000000 + ram(adr + 18) * &H10000 + ram(adr + 19) * &H100 + ram(adr + 20), _ ' flags
 			            ram(adr + 21) * &H1000000 + ram(adr + 22) * &H10000 + ram(adr + 23) * &H100 + ram(adr + 24)    ' refresh_rate          
-			 screenInfo screenWidth, screenHeight, colorDepth, bits_perPixel, scanlineLength, refreshRate, driverName
-			 ram(&HD400) = screenWidth: ram(&HD400 + &H40) = screenHeight: ram(&HD400 + &H80) = colorDepth
-			 ram(&HD400 + &HC0) = bits_perPixel: ram(&HD400 + &H100) = scanlineLength: ram(&HD400 + &H140) = refreshRate
-			 for i = 0 to len(driverName) - 1
-			   ram(&HD400 + &H180 + i) = asc(mid$(driverName, i, 1))
-			 next i
+			 screenInfo r15, r16, r17, r18, r19, r20, driverName
+			 for r33 = 0 to len(driverName) - 1
+			   ram(&HD400 + &H180 + r33) = asc(mid$(driverName, r33, 1))
+			 next r33
 			 'initialize vram
-			 frame_no =   ram(adr + 26) * &H1000000 + ram(adr + 27) * &H10000 + ram(adr + 28) * &H100 + ram(adr + 29)  ' num_frames
-			 tran_color = ram(adr + 30) * &H1000000 + ram(adr + 31) * &H10000 + ram(adr + 32) * &H100 + ram(adr + 33)  ' transparent_color
-			 for offset = 1 to frame_no
-				vram(offset) = imagecreate(screenWidth, screenHeight, tran_color, bits_perPixeL) 
+			 r7  = ram(adr + 26) * &H1000000 + ram(adr + 27) * &H10000 + ram(adr + 28) * &H100 + ram(adr + 29)  ' num_frames
+			 r31 = ram(adr + 30) * &H1000000 + ram(adr + 31) * &H10000 + ram(adr + 32) * &H100 + ram(adr + 33)  ' transparent_color
+			 for offset = 1 to r7
+				vram(offset) = imagecreate(r15, r16, r31, r18) 
              next
 			case &H05 ' DisplayChar x, y, stringData color
 			          ' DisplayChar x, y, stringData, red, green, blue
 			          ' DisplayChar x, y, stringData, red, green, blue, alpha
-             xs = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
-             ys = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)
+             r0 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
+             r1 = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)
              strData  = chr$(ram(adr + 9))
-             select case colorDepth
+             select case r18
                case 1, 2, 4, 8
-                  clr = ram(adr + 10) 
+                  r3 = ram(adr + 10) 
                case 16, 24
-                  clr = ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12)
+                  r3 = ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12)
                case 32
-                  clr = ram(adr + 10) * &H1000000 + ram(adr + 11) * &H10000 + ram(adr + 12) * &H100 + ram(adr + 13)     
+                  r3 = ram(adr + 10) * &H1000000 + ram(adr + 11) * &H10000 + ram(adr + 12) * &H100 + ram(adr + 13)     
              end select  
-             draw string (xs, ys), strData, clr
+             draw string (r0, r1), strData, r3
             case &H06 ' Cls ( byval mode as long = 1 )
              cls ram(adr + 1)  
             case &H07 ' WaitKey ascii_code
@@ -346,154 +344,330 @@ sub MEMORY_T.Poke64(byval adr as integer,byval v as uinteger)
 			       ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)    ' keyflag
 			case &H09 ' ImageCreate ( byval width as long, byval height as long, byval color as ulong = transparent_color, 
 			          '               byval depth as long ) as any ptr
-			 offset       =  ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
-			 vram(offset) =  imagecreate(ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7), _ ' width
+			 r5       =  ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
+			 vram(r5) =  imagecreate(ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7), _ ' width
 			                             ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11), _ ' heigth
 			                             ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15), _ ' color 
 			                             ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19))   ' depth
 		    case &H0A ' ImageDestroy ( byval image as any ptr )
-			 offset       =  ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
-			 imagedestroy(vram(offset))
+			 r5       =  ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
+			 imagedestroy(vram(r5))
 		    case &H0B '	Inkey ( ) as string
-		     ram(adr+1) = asc(inkey$): ram(adr+1)=0
+		     ram(adr+1) = asc(inkey$)
 		    case &H0C ' PSet [target ,] [STEP] (x, y) [,color]
-		     offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     xs     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
-		     ys     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
-		     clr    = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' color
-		     pset vram(offset), (xs, ys), clr
+		     r5 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r0     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
+		     r1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
+		     r3    = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' color
+		     pset vram(r5), (r0, r1), r3
 		    case &H0D ' Put [target, ] [ [STEP](x, y), source [, (x1, y1)-[STEP](x2, y2) ] [, method [, ( alphaval|value|blender [, param]) ] ]     		          	                                          
-		     target = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     source = ram(adr +  4) * &H10000 + ram(adr +  5) * &H100 + ram(adr +  6) ' source
-		     xs     = ram(adr +  7) * &H1000000 + ram(adr +  8) * &H10000 + ram(adr +  9) * &H100 + ram(adr + 10) ' x 
-		     ys     = ram(adr + 11) * &H1000000 + ram(adr + 12) * &H10000 + ram(adr + 13) * &H100 + ram(adr + 14) ' y
-		     method = ram(adr + 15) ' method
-		     value  = ram(adr + 16) ' source
-		     select case method
+		     r5 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r4 = ram(adr +  4) * &H10000 + ram(adr +  5) * &H100 + ram(adr +  6) ' r4
+		     r0     = ram(adr +  7) * &H1000000 + ram(adr +  8) * &H10000 + ram(adr +  9) * &H100 + ram(adr + 10) ' x 
+		     r1     = ram(adr + 11) * &H1000000 + ram(adr + 12) * &H10000 + ram(adr + 13) * &H100 + ram(adr + 14) ' y
+		     r8 = ram(adr + 15) ' r8
+		     r9  = ram(adr + 16) ' r8
+		     select case r8
 		      case &H00
-		       put vram(target), (xs, ys), vram(source),pset
+		       put vram(r5), (r0, r1), vram(r4),pset
 		      case &H01
-		       put vram(target), (xs, ys), vram(source),preset
+		       put vram(r5), (r0, r1), vram(r4),preset
 		      case &H02
-		       put vram(target), (xs, ys), vram(source),trans
+		       put vram(r5), (r0, r1), vram(r4),trans
 		      case &H03
-		       put vram(target), (xs, ys), vram(source),and
+		       put vram(r5), (r0, r1), vram(r4),and
 		      case &H04
-		       put vram(target), (xs, ys), vram(source),or
+		       put vram(r5), (r0, r1), vram(r4),or
 		      case &H05
-			   put vram(target), (xs, ys), vram(source),xor
+			   put vram(r5), (r0, r1), vram(r4),xor
 		      case &H06
-		       put vram(target), (xs, ys), vram(source),alpha,value
+		       put vram(r5), (r0, r1), vram(r4),alpha,r9
 		      case &H07
-		       put vram(target), (xs, ys), vram(source),add,value
+		       put vram(r5), (r0, r1), vram(r4),add,r9
 		     end select
 		    case &H0E ' Put [target, ] [ [STEP](x, y), source [, (x1, y1)-[STEP](x2, y2) ] [, method [, ( alphaval|value|blender [, param]) ] ]     		          	                                          
-		     source = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' source
-		     xs     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr + 7) ' x
-		     ys     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
-		     method = ram(adr + 12) ' method
-		     value  = ram(adr + 13) ' value
-		     select case method
+		     r4 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r4
+		     r0     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr + 7) ' x
+		     r1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
+		     r8 = ram(adr + 12) ' r8
+		     r9  = ram(adr + 13) ' r9
+		     select case r8
 		      case &H00
-		       put (xs, ys), vram(source),pset
+		       put (r0, r1), vram(r4),pset
 		      case &H01
-		       put (xs, ys), vram(source),preset
+		       put (r0, r1), vram(r4),preset
 		      case &H02
-		       put (xs, ys), vram(source),trans
+		       put (r0, r1), vram(r4),trans
 		      case &H03
-		       put (xs, ys), vram(source),and
+		       put (r0, r1), vram(r4),and
 		      case &H04
-		       put (xs, ys), vram(source),or
+		       put (r0, r1), vram(r4),or
 		      case &H05
-			   put (xs, ys), vram(source),xor
+			   put (r0, r1), vram(r4),xor
 		      case &H06
-		       put (xs, ys), vram(source),alpha,value
+		       put (r0, r1), vram(r4),alpha,r9
 		      case &H07
-		       put (xs, ys), vram(source),add,value
+		       put (r0, r1), vram(r4),add,r9
 		     end select
 		    case &H0F ' cleanVram
-		     frame_no =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' num_frames
-		     for offset = 1 to frame_no
+		     r7 =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' num_frames
+		     for offset = 1 to r7
 				imagedestroy vram(offset) 
              next
-             for offset = 1 to 4
-              ram(adr + offset) = 0
-             next 
             case &H10' rgba
-             red = ram(adr +  1): blue = ram(adr +  2): green = ram(adr +  3): xalpha = ram(adr + 4)
+             r27 = ram(adr +  1): r28 = ram(adr +  2): r29 = ram(adr +  3): r30 = ram(adr + 4)
             case &H11' Clear BIOS memory buffer
-             length =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' number of bytes to clear
-             for offset = 1 to length
+             r7 =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' number of bytes to clear
+             for offset = 1 to r7
 			  ram(offset) = 0 	
              next
             case &H12 ' Line [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
-             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     x1     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x1
-		     y1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y1
-		     x2     = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
-		     y2     = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
-		     clr    = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' color
-             line vram(offset), (x1, y1)-(x2, y2), clr
+             r5  = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r10 = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' r10
+		     r11 = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' r11
+		     r12 = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' r12
+		     r13 = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' r13
+		     r3  = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' r3
+             line vram(r5), (r10, r11)-(r12, r12), r3
             case &H13 ' Box [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
-             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     x1     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x1
-		     y1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y1
-		     x2     = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
-		     y2     = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
-		     clr    = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' color
-             line vram(offset), (x1, y1)-(x2, y2), clr, B
+             r5  = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r10 = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' r10
+		     r11 = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' r11
+		     r12 = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
+		     r13 = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
+		     r3  = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' r3
+             line vram(r5), (r10, r11)-(r12, r13), r3, B
             case &H14 ' Bar [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
-             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     x1     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x1
-		     y1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y1
-		     x2     = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' x2
-		     y2     = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' y2
-		     clr    = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' color
-             line vram(offset), (x1, y1)-(x2, y2), clr, BF
+             r5  = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r10 = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' r10
+		     r11 = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' r11
+		     r12 = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' r12
+		     r13 = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' r13
+		     r3  = ram(adr + 20) * &H1000000 + ram(adr + 21) * &H10000 + ram(adr + 22) * &H100 + ram(adr + 23) ' r3
+             line vram(r5), (r10, r11)-(r12, r13), r3, BF
             case &H15 ' Circle [target,] [STEP] (x,y), radius[, [color][, [start][, [end][, [aspect][, F]]]]]
-             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     x      = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
-		     y      = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
-		     radius = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' radius
-		     clr    = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' color
-             circle vram(offset), (x, y), radius, clr
+             r5  = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r0  = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
+		     r1  = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
+		     r14 = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' radius
+		     r3  = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' color
+             circle vram(r5), (r0, r1), r14, r3
             case &H16 ' Circle [target,] [STEP] (x,y), radius[, [color][, [start][, [end][, [aspect][, F]]]]] 
-             offset = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' target
-		     x      = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
-		     y      = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
-		     radius = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' radius
-		     clr    = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' color		    
-             circle vram(offset), (x, y), clr, radius, , , , F
+             r5  = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
+		     r0  = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
+		     r1  = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
+		     r14 = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' radius
+		     r3  = ram(adr + 16) * &H1000000 + ram(adr + 17) * &H10000 + ram(adr + 18) * &H100 + ram(adr + 19) ' color		    
+             circle vram(r5), (r0, r1), r3, r14, , , , F
             case &H17 ' Bload ( byref filename as const string, byval target as any ptr = 0, byval pal as any ptr = 0 ) as long
              string_adr = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' string_adr
-             length     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' length             
-             source     = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' source
+             r7     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r7             
+             r5     = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' r5
              strData = ""
-             for i = 0 to (length - 1)
-              strData = strData + chr$(ram(string_adr+i))             
-             next i
-            bload strData, vram(offset)
+             for r33 = 0 to (r7 - 1)
+              strData = strData + chr$(ram(string_adr+r33))             
+             next r33
+            locate 1, 1: lcase(strData) 
+            bload lcase(strData), vram(r5)
             case &H18 ' Bsave ( byref filename as const string, byval source as any ptr, byval size as ulong = 0, byval pal as any ptr = 0, 
                       '         byval bitsperpixel as long = 0 ) as long
              string_adr = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' string_adr
-             length     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' length             
-             source     = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' source
+             r7 = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r7             
+             r4 = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' r4
              strData = ""
-             for i = 0 to (length - 1)
-              strData = strData + chr$(ram(string_adr+i))             
-             next i
-            bsave strData, vram(offset)          
+             for r33 = 0 to (r7 - 1)
+              strData = strData + chr$(ram(string_adr+r33))             
+             next r33
+            locate 1, 1: lcase(strData) 
+            bsave lcase(strData), vram(r4)          
            case &H19 ' Getmouse ( byref x as integer, byref y as integer, byref wheel as integer = 0, byref buttons as integer = 0,
                      '            byref clip as integer = 0 ) as long
-            getmouse mouseX, mouseY, mouseWheel, mouseButtons, mouseClip
-            ram(&HD400 + &H238) = mouseX: ram(&HD400 + &H27A) = mouseY: ram(&HD400 + &H2BA) = mouseButtons: ram(&HD400 + &H33A) = mouseClip
+            getmouse r21, r22, r23, r24, r25
            case &H1A ' Setmouse ( byval x as long = -1, byval y as long = -1, byval visibility as long = -1, byval clip as long = -1 ) as long
-             mouseX          = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' x
-             mouseY          = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' y             
-             mouseVisibility = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' visibility
-             mouseClip       = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' clip
-             setmouse mouseX, mouseY, mouseVisibility, mouseClip            
-		end select
+             r21 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' x
+             r22 = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' y             
+             r26 = ram(adr +  9) * &H1000000 + ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12) ' visibility
+             r25 = ram(adr + 13) * &H1000000 + ram(adr + 14) * &H10000 + ram(adr + 15) * &H100 + ram(adr + 16) ' clip
+             setmouse r21, r22, r26, r25 
+           case &H1B ' system
+            system 
+           case &H1C ' flip
+            flip 
+           case &H1D ' color foreground_color as integer, background_color as integer
+            r3    = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' r3
+            r2     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r2
+		   case &H1E ' Shell ( byref command as const string ) as long
+		    string_adr = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' string_adr
+		    r7     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r7             
+		    strData = ""
+		    for r33 = 0 to (r7 - 1)
+		     strData = strData + chr$(ram(string_adr+r33))             
+		    next r33
+		    locate 1, 1: lcase(strData)
+		    shell lcase(strData)
+		   case &H1F ' Long Peek 
+		     adr2 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
+		     ram(adr + 1) = ram(adr2 + 1): ram(adr + 2) = ram(adr2 + 2)
+		     ram(adr + 3) = ram(adr2 + 3): ram(adr + 4) = ram(adr2 + 4)
+		   case &H20 ' Long Poke
+		     adr2 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
+		     r34  = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)
+		     ram(adr2) = r34
+		     select case adr2
+		      case cast(uinteger,&H000000)-cast(uinteger,&H0FFFFF) ' chip ram
+		      case cast(uinteger,&H100000)-cast(uinteger,&H1FFFFF) ' chip ram expansion card
+		      case cast(uinteger,&H200000)-cast(uinteger,&H9FFFFF) ' auto-config space / fast-ram
+		      case cast(uinteger,&HA00000)-cast(uinteger,&HBEFFFF) ' Reserved
+		      case cast(uinteger,&HBF0000)-cast(uinteger,&HBFFFFF) ' 8520 CIAs and timers
+
+		       select case adr2
+		       ' There are 2 port devices in the Amiga, referred as 8520-A
+		       ' and 8520-B (or CIA-A and CIA-B). The both chips are exactly 
+		       ' the same (they can be swapped) but are being used for different 
+		       ' functions. Their registers are accessed via memory addresses, 
+		       ' each register is 8 bit wide.
+
+		        '      8520-A   8520-B    Odd CIA (CIA-A)		       		        
+		        case &HBFE001,&HBEF000 ' peripheral data register A
+		        case &HBFE101,&HBEF100 ' peripheral data register B
+		        case &HBFE201,&HBEF200 ' Direction for Port A (BFD001), bit set = output
+		        case &HBFE301,&HBEF300 ' Direction for Port B (BFD101), bit set = output
+		        case &HBFE401,&HBEF400 ' Timer A low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
+		        case &HBFE501,&HBEF500 ' Timer A high byte
+		        case &HBFE601,&HBEF600 ' Timer B low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
+		        case &HBFE701,&HBEF700 ' Timer B high byte
+		        case &HBFE801,&HBEF800 ' Vertical sync event counter bits 7-0 (50/60Hz)
+		        case &HBFE901,&HBEF900 ' Vertical sync event counter bits 15-8
+		        case &HBFEA01,&HBEFA00 ' Vertical sync event counter bits 23-16
+		        case &HBFEB01,&HBEFB00 ' Not used
+		        case &HBFEC01,&HBEFC00 ' Serial data register (used for keyboard)
+		        case &HBFED01,&HBEFD00 ' Interrupt control register
+		        case &HBFEE01,&HBEFE00 ' Control register A
+		        case &HBFEF01,&HBEFF00 ' Control register B
+		        case &HBFD001,&HBFD000 ' Port A
+		        case &HBFD101,&HBFD100 ' Port B
+		        '      8520-A   8520-B   Even CIA (CIA-B)
+		        case &HBFD201,&HBFD200 ' Direction for Port A (BFD000), bit set = output
+		        case &HBFD301,&HBFD300 ' Direction for Port B (BFD100), bit set = output
+		        case &HBFD401,&HBFD400 ' Timer A low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
+		        case &HBFD501,&HBFD500 ' Timer A high byte
+		        case &HBFD601,&HBFD600 ' Timer B low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
+		        case &HBFD701,&HBFD700 ' Timer B high byte
+		        case &HBFD801,&HBFD800 ' Horizontal sync event counter bits 7-0
+		        case &HBFD901,&HBFD900 ' Horizontal sync event counter bits 15-8
+		        case &HBFDA01,&HBFDA00 ' Horizontal sync event counter bits 23-16
+		        case &HBFDB01,&HBFDB00 ' Not used
+		        case &HBFDC00,&HBFDC00 ' Serial data register (not used)
+		        case &HBFDD01,&HBFDD00 ' Interrupt control register
+		        case &HBFDE01,&HBFDE00 ' Control register A
+		        case &HBFDF01,&HBFDF00 ' Control register B
+		       end select
+		      case cast(uinteger,&HC00000)-cast(uinteger,&HD7FFFF) ' Pseudo-fast RAM
+		      case cast(uinteger,&HD80000)-cast(uinteger,&HDBFFFF) ' Reserved
+		      case cast(uinteger,&HDC0000)-cast(uinteger,&HDCFFFF) ' Real time clock (RTC)
+		      case cast(uinteger,&HDD0000)-cast(uinteger,&HDDFFFF) ' Reserved
+		      case cast(uinteger,&HDE0000)-cast(uinteger,&HDEFFFF) ' Mainboard resources
+		      case cast(uinteger,&HDF0000)-cast(uinteger,&HDFFFFF) ' Custom chip registers
+		      case cast(uinteger,&HE00000)-cast(uinteger,&HE7FFFF) ' Reserved
+		      case cast(uinteger,&HE80000)-cast(uinteger,&HE8FFFF) ' Auto-config space.
+		      case cast(uinteger,&HE90000)-cast(uinteger,&HEFFFFF) ' Secondary auto-config space (usually 64K I/O boards)
+		      case cast(uinteger,&HF00000)-cast(uinteger,&HFBFFFF) ' Reserved
+		      case cast(uinteger,&HFC0000)-cast(uinteger,&HFFFFFF) ' System ROM		       	        
+		     end select                     
+           case &HFF ' GPU
+             select case ram(adr + 1)
+              case &H01 ' set r0
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               ram(prgctr)=&H01: ram(prgctr+1)=r0: prgctr+=6
+              case &H02 ' set r1
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               ram(prgctr)=&H02: ram(prgctr+1)=r0: prgctr+=6
+              case &H03 ' set r2
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               ram(prgctr)=&H03: ram(prgctr+1)=r0: prgctr+=6
+              case &H04 ' set exitflag
+               ram(prgctr)=&H05: prgctr+=1
+              case &H05 ' compile inc
+               ram(prgctr)=&H06: prgctr+=1
+              case &H06 ' compile jump
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               ram(prgctr)=&H07: ram(prgctr+1)=r0: prgctr+=6
+              case &H07 ' compile sleep
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               ram(prgctr)=&H08: ram(prgctr+1)=r0: prgctr+=6
+              case &H08 ' compile getKey
+               ram(prgctr)=&H09: prgctr+=1
+              case &H09 ' compile checkKey
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               r1 = ram(adr +  6) * &H1000000 + ram(adr +  7) * &H10000 + ram(adr +  8) * &H100 + ram(adr +  9) ' r1             
+               ram(prgctr)=&HFF: ram(prgctr+1)=r0: ram(prgctr+2)=r1: prgctr+=10
+              case &H0A ' compile gfx
+               ram(prgctr)=&H04: prgctr+=1 
+              case &H0B to &H2A ' ALU
+               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+               r1 = ram(adr +  6) * &H1000000 + ram(adr +  7) * &H10000 + ram(adr +  8) * &H100 + ram(adr +  9) ' r1             
+               ram(prgctr)=(ram(adr + 1) - 1): ram(prgctr+1)=r0: ram(prgctr+2)=r1: prgctr+=10
+              case &HFF ' raster
+               r3 = ram(adr + 10) * &H1000000 + ram(adr + 11) * &H10000 + ram(adr + 12) * &H100 + ram(adr + 13) ' r3
+               prgctr=&HD022
+			   do        
+			    select case ram(prgctr)
+				 case &H01: r0 = ram(prgctr+1): prgctr+=1
+			     case &H02: r1 = ram(prgctr+1): prgctr+=1
+			     case &H03: r2 = ram(prgctr+1): prgctr+=1
+				 case &H04: const raster = 32: line vram(r3),(r1*raster,r0*raster)-((r1+1)*raster,(r0+1)*raster),r2,bf: prgctr+=1
+				 case &H05: exitflag = 1
+				 case &H06: r2 + = 1
+				 case &H07: prgctr = ram(prgctr+1)-1
+				 case &H08: sleep ram(prgctr+1),1: prgctr+=1
+				 case &H09: interface_keyboard = asc(inkey)
+				 case &H0A: r2 = r0  +  r1
+				 case &H0B: r2 = r0  -  r1
+				 case &H0C: r2 = r0  *  r1
+				 case &H0D: r2 = r0  /  r1
+				 case &H0E: r2 = r0  \  r1
+				 case &H0F: r2 = r0 and r1
+				 case &H10: r2 = r0 or  r1
+				 case &H11: r2 = r0 xor r1
+				 case &H12: r2 = r0 shl r1
+				 case &H13: r2 = r0 shr r1
+				 case &H14: if r0  =  r1 then r2 = 1 else r2 = 0
+				 case &H15: if r0  >  r1 then r2 = 1 else r2 = 0
+				 case &H16: if r0  <  r1 then r2 = 1 else r2 = 0
+				 case &H17: if r0  <> r1 then r2 = 1 else r2 = 0
+				 case &H18: if r0  =  r1 then prgctr = r3
+				 case &H19: if r0  >  r1 then prgctr = r3
+				 case &H1A: if r0  <  r1 then prgctr = r3
+				 case &H1B: if r0  <> r1 then prgctr = r3	
+				 case &H1C: r0 = r1
+				 case &H1D: r0 = r2
+				 case &H1E: r0 = r3
+				 case &H1F: r1 = r0
+				 case &H20: r1 = r2
+				 case &H21: r1 = r3
+				 case &H22: r2 = r0
+				 case &H23: r2 = r1
+				 case &H25: r2 = r3   
+				 case &H26: r3 = r0
+				 case &H27: r3 = r1
+				 case &H28: r3 = r2	
+				 case &H29: r2 = r0  ^  r1
+				 case &H2A: r2 = r0 mod r1
+				 case &H2B: r2 = r0 eqv r1
+				 case &H2D: r2 = r0 imp r1
+				 case &H2F: r2 = bit(r0, r1) 		 
+				 case &HFF: 
+				  if interface_keyboard = ram(prgctr+1) then
+					prgctr = ram(prgctr+2)-1
+				  end if
+				  prgctr+=2
+				 case else
+				  print "UNKNOWN OPCODE @";prgctr;" (OPCODE :";ram(prgctr);")";" -- REGISTERS : ";R0,r1,r2
+			    end select
+				prgctr+=1
+			  loop until exitflag = 1 
+		     end select                          
+ 	  end select 
   end select
 end sub
 
@@ -526,14 +700,14 @@ constructor CPU6510(byval lpMem as MEMORY_T ptr)
   mem=lpMem
   restore INSTRUCTION_SET
   'opcode,name,adrmode,ticks,operand,decoder
-  for i=0 to 255
-    with Opcodes(i)
+  for r33=0 to 255
+    with Opcodes(r33)
       read .code,.nam,.adrmode,.bytes,.ticks,cast(integer,.decode)
     end with
   next
   restore ADDRESS_MODES
-  for i=0 to 12
-    read StrAdrModes(i)
+  for r33=0 to 12
+    read StrAdrModes(r33)
   next
   ' direction and data port
   'mem->WriteUByte(0,&H27)
@@ -569,7 +743,7 @@ end operator
 function CPU6510.Tick(byval flg as integer) as integer
   static as integer Ticks
   dim as string msg
-  dim as MULTI v
+  dim as MULTI r34
   ' get next opcode from current programm counter
   code=opcodes(mem->readubyte(PC))
 
@@ -611,8 +785,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _IMM
       #ifdef _DEBUG
       if flg=Ticks then
-        v.ulo=mem->readubyte(pc)
-        dprint(msg & " #$" & hex(v.ulo,2) & chr(13,10))
+        r34.ulo=mem->readubyte(pc)
+        dprint(msg & " #$" & hex(r34.ulo,2) & chr(13,10))
         sleep
       endif
       #endif
@@ -621,8 +795,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _ABS
       #ifdef _DEBUG
       if flg=Ticks then
-        v.u64=mem->readushort(pc)
-        dprint(msg & "  $" & hex(v.u64,4) & chr(13,10))
+        r34.u64=mem->readushort(pc)
+        dprint(msg & "  $" & hex(r34.u64,4) & chr(13,10))
         sleep
       endif
       #endif
@@ -631,8 +805,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _ZERO
       #ifdef _DEBUG
       if flg=Ticks then
-        v.ulo=mem->readubyte(pc)
-        dprint(msg & " $" & hex(v.ulo,2) & chr(13,10))
+        r34.ulo=mem->readubyte(pc)
+        dprint(msg & " $" & hex(r34.ulo,2) & chr(13,10))
         sleep
       endif
       #endif
@@ -641,8 +815,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _ZEROX
       #ifdef _DEBUG
       if flg=Ticks then
-        v.ulo=mem->readubyte(pc)
-        dprint(msg & " $" & hex(v.ulo,2) & ",X" & chr(13,10))
+        r34.ulo=mem->readubyte(pc)
+        dprint(msg & " $" & hex(r34.ulo,2) & ",X" & chr(13,10))
         sleep
       endif
       #endif
@@ -651,8 +825,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _ZEROY
       #ifdef _DEBUG
       if flg=Ticks then
-        v.ulo=mem->readubyte(pc)
-        dprint(msg & " $" & hex(v.ulo,2) & ",Y" & chr(13,10))
+        r34.ulo=mem->readubyte(pc)
+        dprint(msg & " $" & hex(r34.ulo,2) & ",Y" & chr(13,10))
         sleep
       endif
       #endif
@@ -661,8 +835,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _ABSX
       #ifdef _DEBUG
       if flg=Ticks then
-        v.u64=mem->readushort(pc)
-        dprint(msg & " $" & hex(v.u64,4) & ",X" & chr(13,10))
+        r34.u64=mem->readushort(pc)
+        dprint(msg & " $" & hex(r34.u64,4) & ",X" & chr(13,10))
         sleep
       endif
       #endif
@@ -671,8 +845,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _ABSY
       #ifdef _DEBUG
       if flg=Ticks then
-        v.u64=mem->readushort(pc)
-        dprint(msg & " $" & hex(v.u64,4) & ",Y" & chr(13,10))
+        r34.u64=mem->readushort(pc)
+        dprint(msg & " $" & hex(r34.u64,4) & ",Y" & chr(13,10))
         sleep
       endif
       #endif
@@ -681,9 +855,9 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _REL
       #ifdef _DEBUG
       if flg=Ticks then
-        v.u64 =pc
-        v.s64+=mem->ReadByte(pc)+1
-        dprint(msg & " $" & hex(v.u64,4) & chr(13,10))
+        r34.u64 =pc
+        r34.s64+=mem->ReadByte(pc)+1
+        dprint(msg & " $" & hex(r34.u64,4) & chr(13,10))
         sleep
       endif
       #endif
@@ -692,8 +866,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _INDX
       #ifdef _DEBUG
       if flg=Ticks then
-        v.u64=mem->ReadUInt(pc)
-        dprint(msg & " ($" & hex(v.u64,4) & ",X)" & chr(13,10))
+        r34.u64=mem->ReadUInt(pc)
+        dprint(msg & " ($" & hex(r34.u64,4) & ",X)" & chr(13,10))
         sleep
       endif
       #endif
@@ -702,8 +876,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _INDY
       #ifdef _DEBUG
       if flg=Ticks then
-        v.ulo=mem->ReadUByte(pc)
-        dprint(msg & " ($" & hex(v.ulo,4) & "),Y" & chr(13,10))
+        r34.ulo=mem->ReadUByte(pc)
+        dprint(msg & " ($" & hex(r34.ulo,4) & "),Y" & chr(13,10))
         sleep
       endif
       #endif
@@ -712,8 +886,8 @@ function CPU6510.Tick(byval flg as integer) as integer
     case _IND
       #ifdef _DEBUG
       if flg=Ticks then
-        v.u64=mem->ReadUInt(pc)
-        dprint(msg & " ($" & hex(v.u64,4) & ")" & chr(13,10))
+        r34.u64=mem->ReadUInt(pc)
+        dprint(msg & " ($" & hex(r34.u64,4) & ")" & chr(13,10))
         sleep
       endif
       #endif
@@ -783,35 +957,35 @@ end function
 function CPU6510.ADR_INDX as uinteger ' 1 byte ($XX,x)
   ' adr =(mem(pc )+x) and 255
   ' adr = mem(adr) + mem(adr+1)*256
-  dim as MULTI v
-  v.u64=(mem->ReadUByte(pc)+x) and &HFF
-  v.u64=mem->ReadUInt(v.u64)
+  dim as MULTI r34
+  r34.u64=(mem->ReadUByte(pc)+x) and &HFF
+  r34.u64=mem->ReadUInt(r34.u64)
   pc+=1
-  return v.u64
+  return r34.u64
 end function
 
 function CPU6510.ADR_INDY as uinteger ' 1 byte ($XX),y
-  ' v.ulo=mem->ReadUByte(pc)
+  ' r34.ulo=mem->ReadUByte(pc)
   ' adr = mem(pc ) + mem(pc +1)*256 + y
-  dim as MULTI v
-  v.u64=mem->ReadUInt(mem->ReadUByte(PC))
-  v.u64+=y
-function = v.u64
+  dim as MULTI r34
+  r34.u64=mem->ReadUInt(mem->ReadUByte(PC))
+  r34.u64+=y
+function = r34.u64
     pc+=1
 end function
 
 function CPU6510.ADR_IND as uinteger ' 2 byte ($xx:xx)
   ' adr = mem(pc ) + mem(pc +1)*256
   ' pc  = mem(adr) + mem(adr+1)*256
-  dim as MULTI v
-  v.u64=mem->ReadUInt(pc)
-  v.u64=mem->ReadUInt(v.u64)
+  dim as MULTI r34
+  r34.u64=mem->ReadUInt(pc)
+  r34.u64=mem->ReadUInt(r34.u64)
   pc+=2
-  return v.u64
+  return r34.u64
 end function
 
-sub CPU6510.Push(byval b as ubyte)
-  mem->WriteUByte(sp,b)
+sub CPU6510.Push(byval r31 as ubyte)
+  mem->WriteUByte(sp,r31)
   s-=1
 end sub
 
@@ -889,11 +1063,11 @@ end sub
 
 sub INS_BEQ(byval Cpu as CPU6510_T)
   if Cpu->F.z=1 then
-    dim as MULTI v
-    v.u64 =Cpu->pc
-    v.s64-=1
-    v.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
-    Cpu->pc=v.u64
+    dim as MULTI r34
+    r34.u64 =Cpu->pc
+    r34.s64-=1
+    r34.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
+    Cpu->pc=r34.u64
   end if
 end sub
 
@@ -907,31 +1081,31 @@ end sub
 
 sub INS_BMI(byval Cpu as CPU6510_T)
   if Cpu->F.n then
-    dim as MULTI v
-    v.u64 =Cpu->pc
-    v.s64-=1
-    v.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
-    Cpu->pc=v.u64
+    dim as MULTI r34
+    r34.u64 =Cpu->pc
+    r34.s64-=1
+    r34.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
+    Cpu->pc=r34.u64
   end if
 end sub
 
 sub INS_BNE(byval Cpu as CPU6510_T)
   if Cpu->F.z=0 then
-    dim as MULTI v
-    v.u64 =Cpu->pc
-    v.s64-=1
-    v.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
-    Cpu->pc=v.u64
+    dim as MULTI r34
+    r34.u64 =Cpu->pc
+    r34.s64-=1
+    r34.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
+    Cpu->pc=r34.u64
   end if
 end sub
 
 sub INS_BPL(byval Cpu as CPU6510_T)
   if Cpu->F.n=0 then
-    dim as MULTI v
-    v.u64 =Cpu->pc
-    v.s64-=1
-    v.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
-    Cpu->pc=v.u64
+    dim as MULTI r34
+    r34.u64 =Cpu->pc
+    r34.s64-=1
+    r34.s64+=Cpu->mem->ReadByte(Cpu->Code.op.u64)+1
+    Cpu->pc=r34.u64
   end if
 end sub
 
@@ -1006,12 +1180,12 @@ sub INS_CPY(byval Cpu as CPU6510_T)
 end sub
 
 sub INS_DEC(byval Cpu as CPU6510_T)
-  dim as MULTI v
-  v.ulo=Cpu->mem->ReadUByte(Cpu->Code.op.u64)
-  v.slo-=1
-  Cpu->F.z=iif(v.slo=0,1,0)
-  Cpu->F.n=iif(v.slo<0,1,0)
-  Cpu->mem->WriteUByte(Cpu->Code.op.u64,v.ulo)
+  dim as MULTI r34
+  r34.ulo=Cpu->mem->ReadUByte(Cpu->Code.op.u64)
+  r34.slo-=1
+  Cpu->F.z=iif(r34.slo=0,1,0)
+  Cpu->F.n=iif(r34.slo<0,1,0)
+  Cpu->mem->WriteUByte(Cpu->Code.op.u64,r34.ulo)
 end sub
 
 sub INS_DEX(byval Cpu as CPU6510_T)
@@ -1033,30 +1207,30 @@ sub INS_EOR(byval Cpu as CPU6510_T)
 end sub
 
 sub INS_INC(byval Cpu as CPU6510_T)
-  dim as MULTI v
-  v.ulo=Cpu->mem->ReadUbyte(Cpu->Code.op.u64)
-  v.s64+=1
-  Cpu->mem->WriteByte(Cpu->Code.op.u64,v.ulo)
-  Cpu->F.z=iif(v.ulo=0,1,0)
-  Cpu->F.n=iif(v.slo<0,1,0)
+  dim as MULTI r34
+  r34.ulo=Cpu->mem->ReadUbyte(Cpu->Code.op.u64)
+  r34.s64+=1
+  Cpu->mem->WriteByte(Cpu->Code.op.u64,r34.ulo)
+  Cpu->F.z=iif(r34.ulo=0,1,0)
+  Cpu->F.n=iif(r34.slo<0,1,0)
 end sub
 
 sub INS_INX(byval Cpu as CPU6510_T)
-  dim as MULTI v
-  v.ulo=Cpu->X
-  v.s64+=1
-  Cpu->X=v.ulo
-  Cpu->F.z=iif(v.ulo=0,1,0)
-  Cpu->F.n=iif(v.slo<0,1,0)
+  dim as MULTI r34
+  r34.ulo=Cpu->X
+  r34.s64+=1
+  Cpu->X=r34.ulo
+  Cpu->F.z=iif(r34.ulo=0,1,0)
+  Cpu->F.n=iif(r34.slo<0,1,0)
 end sub
 
 sub INS_INY(byval Cpu as CPU6510_T)
-  dim as MULTI v
-  v.ulo=Cpu->Y
-  v.s64+=1
-  Cpu->Y=v.ulo
-  Cpu->F.z=iif(v.ulo=0,1,0)
-  Cpu->F.n=iif(v.slo<0,1,0)
+  dim as MULTI r34
+  r34.ulo=Cpu->Y
+  r34.s64+=1
+  Cpu->Y=r34.ulo
+  Cpu->F.z=iif(r34.ulo=0,1,0)
+  Cpu->F.n=iif(r34.slo<0,1,0)
 end sub
 
 sub INS_JMP(byval Cpu as CPU6510_T)
@@ -1145,6 +1319,7 @@ sub INS_ROL(byval Cpu as CPU6510_T)
   Cpu->F.z=iif(v.ulo=0,1,0)
   Cpu->F.n=iif(v.slo<1,1,0)
 end sub
+
 sub INS_ROLA(byval Cpu as CPU6510_T) ' ac
   dim as ubyte cary
   cary=iif(Cpu->F.c=1,1,0)
@@ -2888,8 +3063,8 @@ function InterruptService(byval cpu as CPU6510 ptr) as integer
           dim as integer nBytes=cpu->mem->ReadUInt(&H02D)
           nBytes-=2048
           put #key,,nBytes
-          for i=0 to nBytes-1
-            u8=cpu->mem->ReadUByte(2048+i)
+          for r35=0 to nBytes-1
+            u8=cpu->mem->ReadUByte(2048+r35)
             put #key,,u8
           next
           close #key
@@ -2910,9 +3085,9 @@ function InterruptService(byval cpu as CPU6510 ptr) as integer
           dim as ubyte   u8
           dim as integer nBytes
           get #key,,nBytes
-          for i=0 to nBytes-1
+          for r35=0 to nBytes-1
             get #key,,u8
-            cpu->mem->WriteUByte(2048+i,u8)
+            cpu->mem->WriteUByte(2048+r35,u8)
           next
           close #key
           nBytes+=2048
@@ -2967,20 +3142,22 @@ end function
 '
 ' main
 '
+
 dim as C64_T computer
 dim as integer ticks
 
 do
   Ticks+=1
   if flag=1 then
-    computer.cpu->Tick Ticks
+	computer.cpu->Tick Ticks
   else
-    computer.cpu->Tick
+	computer.cpu->Tick
   end if
   ' call ISR after 24,000 ticks
   if Ticks mod 24000=0 then
-    Ticks+=InterruptService(computer.cpu)
-    sleep(10,1)
+	Ticks+=InterruptService(computer.cpu)
+	sleep(10,1)
   end if
+  'locate 1, 1: print "$"; hex$(computer.cpu->pc): sleep
 loop
 
