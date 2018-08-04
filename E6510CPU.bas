@@ -6,15 +6,74 @@
 # define dprint(msg) :
 #endif
 
-'global data table
+'CPU/GPU Register table:
 dim shared as uinteger r0,r1,r2=16,r3=8,r4,r5,r6,r7,r8,r9,r10
 dim shared as uinteger r11,r12,r13,r14,r15,r16,r17,r18,r19,r20
 dim shared as uinteger r21,r22,r23,r24,r25,r26,r27=&HFF,r28=&HFF
-dim shared as uinteger r29=&HFF,r30=&HFF,r31,r32,r33,r34,r35,r36,r37
-dim shared as uinteger exitflag,interface_keyboard,targetkey,jumpadr,keyBufferPos
-dim shared as uinteger string_adr, adr, adr2, offset, prgctr=&HD022
+dim shared as uinteger r29=&HFF,r30=&HFF,r31,r32,r33,r34,r35,r36
+dim shared as uinteger r37,r38, string_adr, adr, adr2
 dim shared as string   driverName, strData
-Dim shared as ubyte    keyBuffer(15)
+
+type BITFEILD_T
+  BIT00 as ubyte 
+  BIT01 as ubyte
+  BIT02 as ubyte
+  BIT03 as ubyte
+  BIT04 as ubyte
+  BIT05 as ubyte
+  BIT06 as ubyte
+  BIT07 as ubyte
+end type  
+
+type CIA_T ' Complex Interface Adapter
+ pra    as BITFEILD_T 
+ prb    as BITFEILD_T 
+ ddra   as BITFEILD_T 
+ ddrb   as BITFEILD_T 
+ talo   as BITFEILD_T
+ tahi   as BITFEILD_T 
+ tblo   as BITFEILD_T 
+ tbhi   as BITFEILD_T
+ todlo  as BITFEILD_T 
+ todmid as BITFEILD_T
+ todhi  as BITFEILD_T 
+ sdr    as BITFEILD_T 
+ icr    as BITFEILD_T 
+ cra    as BITFEILD_T 
+ crb    as BITFEILD_T 
+end type
+
+'VIC-II Register table:
+' Sprites Coordinates
+dim shared as uinteger M0X,M0Y,M1X,M1Y,M2X,M2Y,M3X,M3Y,M4X,M4Y,M5X,M5Y
+dim shared as uinteger M6X,M6Y,M7X,M7Y
+' MSBs of X coordinates
+dim shared as uinteger M7X8,M6X8,M5X8,M4X8,M3X8,M2X8,M1X8,M0X8
+' Control register 1
+dim shared as uinteger RST8,ECM,BMM,DEN,RSEL,YSCROLL
+' Raster counter
+dim shared as uinteger RASTER
+' Mouse X
+dim shared as uinteger LPX
+' Mouse Y
+dim shared as uinteger LPY
+' Sprite enabled
+dim shared as uinteger M7E,M6E,M5E,M4E,M3E,M2E,M1E,M0E
+' Control register 2
+dim shared as uinteger RES,MCM,CSEL,XSCROLL
+' Sprite Y expansion
+dim shared as uinteger M7YE,M6YE,M5YE,M4YE,M3YE,M2YE,M1YE,M0YE
+' Memory pointers
+dim shared as uinteger VM13,VM12,VM10,CB13,CB12,CB11
+' Interrupt register
+dim shared as uinteger IRQ0,ILP,IMMC,IMBC,IRST
+' Interrupt enabled
+dim shared as uinteger IRQ1,ELP,EMMC,EMBC,ERST
+' Sprite data priority
+dim shared as uinteger M7DP,M6DP,M5DP,M4DP,M3DP,M2DP,M1DP,M0DP
+' Sprite X expansion
+dim shared as uinteger M7XE,M6XE,M5XE,M4XE,M3XE,M2XE,M1XE,M0XE
+
 
 type MEMORY_T
   public:
@@ -204,7 +263,7 @@ data &Ha7a3a7,&Hbfb7fb,&Hffa397,&He7efe9
 
 constructor C64_T
   dprint("C64_T()")
-  screenres 320+8*8, 200+8*8,8
+  screenres 320+8*8, 200+8*8,32
   screenInfo r15, r16, r17, r18, r19, r20, driverName
   for r33=0 to 15
     read r32:palette r33,r32
@@ -254,36 +313,12 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
     adr-=&H0000D800:col(adr)=r34
     adr+=&H00000400:r34=ram(adr)
   end if
-  select case r18
-   case 1, 2, 4
-    r3 = col(adr)
-   case 8
-	r3  = (r27 * 7 / 255) shl 5 + (r28 * 7 / 255) shl 2 + (r29 * 3 / 255)
-   case 15, 16, 24
-    r3 = r27 * &H10000 + r28 * &H100 + r29
-   case 24, 32
-    r3 = r30 * &H1000000 + r27 * &H10000 + r28 * &H100 + r29   
-  end select
   select case adr
-    case &H00000400 to &H000007E7
-      adr-=&H00000400
-      r32=r34:r32 shl=3
-      r0=adr mod 40:r0 shl =3:r0+=8*4
-      r1=adr  \  40:r1 shl =3:r1+=8*4
-    
-      screenlock
-      for r36 = 0 to 7
-        for r37 = 0 to 7
-          if char(r32) and (128 shr r37) then
-            pset(r0+r37,r1+r36),r3
-          else
-            pset(r0+r37,r1+r36),r2
-          end if
-        next
-        r32+=1
-      next
-      screenunlock r1,r1+8
-      case &H02A7 ' BIOS 
+    case &H00000000 to &H000000FF ' Zeropage addressing
+    case &H00000100 to &H000001FF ' Enhanced Zeropage contains the stack
+    case &H00000200 to &H000002FF ' Operating System and BASIC pointers
+     select case adr
+          case &H000002A7 ' GPU 
        select case r34
 			case &H01 ' Memcopy source, target, segment, size
 			  r4 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3)
@@ -296,9 +331,6 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
 			case &H02 ' Screen mode [, [ depth ] [, [ num_pages ] [, [ flags ] [, [ refresh_rate ]]]]]
 			 screen ram(adr + 1), ram(adr + 2), ram(adr + 3), ram(adr + 4), ram(adr + 5)
 			 screenInfo r15, r16, r17, r18, r19, r20, driverName
-			 for r33 = 0 to len(driverName) - 1
-			   ram(&HD400 + &H180 + r33) = asc(mid$(driverName, r33, 1))
-			 next r33
 			case &H03 ' Screen , [ active_page ] [, [ visible_page ]]
 			 screen , ram(adr + 1), ram(adr + 2)
 			case &H04 ' Screenres ( byval width as long, byval height as long, byval depth as long = 8,
@@ -317,23 +349,20 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
 			 'initialize vram
 			 r7  = ram(adr + 26) * &H1000000 + ram(adr + 27) * &H10000 + ram(adr + 28) * &H100 + ram(adr + 29)  ' num_frames
 			 r31 = ram(adr + 30) * &H1000000 + ram(adr + 31) * &H10000 + ram(adr + 32) * &H100 + ram(adr + 33)  ' transparent_color
-			 for offset = 1 to r7
-				vram(offset) = imagecreate(r15, r16, r31, r18) 
+			 for r38 = 1 to r7
+				vram(r38) = imagecreate(r15, r16, r31, r18) 
              next
-			case &H05 ' DisplayChar x, y, stringData color
-			          ' DisplayChar x, y, stringData, red, green, blue
-			          ' DisplayChar x, y, stringData, red, green, blue, alpha
+			case &H05 ' DisplayChar x, y, stringData
              r0 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
              r1 = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)
              strData  = chr$(ram(adr + 9))
-             select case r18
-               case 1, 2, 4, 8
-                  r3 = ram(adr + 10) 
-               case 16, 24
-                  r3 = ram(adr + 10) * &H10000 + ram(adr + 11) * &H100 + ram(adr + 12)
-               case 32
-                  r3 = ram(adr + 10) * &H1000000 + ram(adr + 11) * &H10000 + ram(adr + 12) * &H100 + ram(adr + 13)     
-             end select  
+			 if r18=8 then 
+				r3  = (r27 * 7 / 255) shl 5 + (r28 * 7 / 255) shl 2 + (r29 * 3 / 255)
+			 elseif r17>8 then 
+			    r3 = rgba(r27,r28,r29,r30)
+			 else
+			    r3 = col(adr)
+			 end if
              draw string (r0, r1), strData, r3
             case &H06 ' Cls ( byval mode as long = 1 )
              cls ram(adr + 1)  
@@ -356,17 +385,17 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
 		     ram(adr+1) = asc(inkey$)
 		    case &H0C ' PSet [target ,] [STEP] (x, y) [,color]
 		     r5 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
-		     r0     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
-		     r1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
-		     r3    = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' color
+		     r0 = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr +  7) ' x
+		     r1 = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
+		     r3 = ram(adr + 12) * &H1000000 + ram(adr + 13) * &H10000 + ram(adr + 14) * &H100 + ram(adr + 15) ' color
 		     pset vram(r5), (r0, r1), r3
 		    case &H0D ' Put [target, ] [ [STEP](x, y), source [, (x1, y1)-[STEP](x2, y2) ] [, method [, ( alphaval|value|blender [, param]) ] ]     		          	                                          
 		     r5 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
 		     r4 = ram(adr +  4) * &H10000 + ram(adr +  5) * &H100 + ram(adr +  6) ' r4
-		     r0     = ram(adr +  7) * &H1000000 + ram(adr +  8) * &H10000 + ram(adr +  9) * &H100 + ram(adr + 10) ' x 
-		     r1     = ram(adr + 11) * &H1000000 + ram(adr + 12) * &H10000 + ram(adr + 13) * &H100 + ram(adr + 14) ' y
+		     r0 = ram(adr +  7) * &H1000000 + ram(adr +  8) * &H10000 + ram(adr +  9) * &H100 + ram(adr + 10) ' x 
+		     r1 = ram(adr + 11) * &H1000000 + ram(adr + 12) * &H10000 + ram(adr + 13) * &H100 + ram(adr + 14) ' y
 		     r8 = ram(adr + 15) ' r8
-		     r9  = ram(adr + 16) ' r8
+		     r9 = ram(adr + 16) ' r8
 		     select case r8
 		      case &H00
 		       put vram(r5), (r0, r1), vram(r4),pset
@@ -387,10 +416,10 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
 		     end select
 		    case &H0E ' Put [target, ] [ [STEP](x, y), source [, (x1, y1)-[STEP](x2, y2) ] [, method [, ( alphaval|value|blender [, param]) ] ]     		          	                                          
 		     r4 = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r4
-		     r0     = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr + 7) ' x
-		     r1     = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
+		     r0 = ram(adr +  4) * &H1000000 + ram(adr +  5) * &H10000 + ram(adr +  6) * &H100 + ram(adr + 7) ' x
+		     r1 = ram(adr +  8) * &H1000000 + ram(adr +  9) * &H10000 + ram(adr + 10) * &H100 + ram(adr + 11) ' y
 		     r8 = ram(adr + 12) ' r8
-		     r9  = ram(adr + 13) ' r9
+		     r9 = ram(adr + 13) ' r9
 		     select case r8
 		      case &H00
 		       put (r0, r1), vram(r4),pset
@@ -410,16 +439,16 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
 		       put (r0, r1), vram(r4),add,r9
 		     end select
 		    case &H0F ' cleanVram
-		     r7 =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' num_frames
-		     for offset = 1 to r7
-				imagedestroy vram(offset) 
+		     r7 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' num_frames
+		     for r38 = 1 to r7
+				imagedestroy vram(r38) 
              next
             case &H10' rgba
              r27 = ram(adr +  1): r28 = ram(adr +  2): r29 = ram(adr +  3): r30 = ram(adr + 4)
             case &H11' Clear BIOS memory buffer
-             r7 =   ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' number of bytes to clear
-             for offset = 1 to r7
-			  ram(offset) = 0 	
+             r7 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr + 4)  ' number of bytes to clear
+             for r38 = 1 to r7
+			  ram(r38) = 0 	
              next
             case &H12 ' Line [target,] [[STEP]|(x1, y1)]-[STEP] (x2, y2) [, [color][, [B|BF][, style]]]
              r5  = ram(adr +  1) * &H10000 + ram(adr +  2) * &H100 + ram(adr +  3) ' r5
@@ -498,7 +527,7 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
             r2     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r2
 		   case &H1E ' Shell ( byref command as const string ) as long
 		    string_adr = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4) ' string_adr
-		    r7     = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r7             
+		    r7         = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8) ' r7             
 		    strData = ""
 		    for r33 = 0 to (r7 - 1)
 		     strData = strData + chr$(ram(string_adr+r33))             
@@ -506,168 +535,192 @@ sub MEMORY_T.Poke64(byval adr as integer,byval r34 as uinteger)
 		    locate 1, 1: lcase(strData)
 		    shell lcase(strData)
 		   case &H1F ' Long Peek 
-		     adr2 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
-		     ram(adr + 1) = ram(adr2 + 1): ram(adr + 2) = ram(adr2 + 2)
-		     ram(adr + 3) = ram(adr2 + 3): ram(adr + 4) = ram(adr2 + 4)
+		    adr2 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
+		    ram(adr + 1) = Peek64(adr2)
+            locate 1, 1: print adr2, r34		     
 		   case &H20 ' Long Poke
-		     adr2 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
-		     r34  = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)
-		     ram(adr2) = r34
-		     select case adr2
-		      case cast(uinteger,&H000000)-cast(uinteger,&H0FFFFF) ' chip ram
-		      case cast(uinteger,&H100000)-cast(uinteger,&H1FFFFF) ' chip ram expansion card
-		      case cast(uinteger,&H200000)-cast(uinteger,&H9FFFFF) ' auto-config space / fast-ram
-		      case cast(uinteger,&HA00000)-cast(uinteger,&HBEFFFF) ' Reserved
-		      case cast(uinteger,&HBF0000)-cast(uinteger,&HBFFFFF) ' 8520 CIAs and timers
-
-		       select case adr2
-		       ' There are 2 port devices in the Amiga, referred as 8520-A
-		       ' and 8520-B (or CIA-A and CIA-B). The both chips are exactly 
-		       ' the same (they can be swapped) but are being used for different 
-		       ' functions. Their registers are accessed via memory addresses, 
-		       ' each register is 8 bit wide.
-
-		        '      8520-A   8520-B    Odd CIA (CIA-A)		       		        
-		        case &HBFE001,&HBEF000 ' peripheral data register A
-		        case &HBFE101,&HBEF100 ' peripheral data register B
-		        case &HBFE201,&HBEF200 ' Direction for Port A (BFD001), bit set = output
-		        case &HBFE301,&HBEF300 ' Direction for Port B (BFD101), bit set = output
-		        case &HBFE401,&HBEF400 ' Timer A low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
-		        case &HBFE501,&HBEF500 ' Timer A high byte
-		        case &HBFE601,&HBEF600 ' Timer B low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
-		        case &HBFE701,&HBEF700 ' Timer B high byte
-		        case &HBFE801,&HBEF800 ' Vertical sync event counter bits 7-0 (50/60Hz)
-		        case &HBFE901,&HBEF900 ' Vertical sync event counter bits 15-8
-		        case &HBFEA01,&HBEFA00 ' Vertical sync event counter bits 23-16
-		        case &HBFEB01,&HBEFB00 ' Not used
-		        case &HBFEC01,&HBEFC00 ' Serial data register (used for keyboard)
-		        case &HBFED01,&HBEFD00 ' Interrupt control register
-		        case &HBFEE01,&HBEFE00 ' Control register A
-		        case &HBFEF01,&HBEFF00 ' Control register B
-		        case &HBFD001,&HBFD000 ' Port A
-		        case &HBFD101,&HBFD100 ' Port B
-		        '      8520-A   8520-B   Even CIA (CIA-B)
-		        case &HBFD201,&HBFD200 ' Direction for Port A (BFD000), bit set = output
-		        case &HBFD301,&HBFD300 ' Direction for Port B (BFD100), bit set = output
-		        case &HBFD401,&HBFD400 ' Timer A low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
-		        case &HBFD501,&HBFD500 ' Timer A high byte
-		        case &HBFD601,&HBFD600 ' Timer B low byte (.715909 Mhz NTSC; .709379 Mhz PAL)
-		        case &HBFD701,&HBFD700 ' Timer B high byte
-		        case &HBFD801,&HBFD800 ' Horizontal sync event counter bits 7-0
-		        case &HBFD901,&HBFD900 ' Horizontal sync event counter bits 15-8
-		        case &HBFDA01,&HBFDA00 ' Horizontal sync event counter bits 23-16
-		        case &HBFDB01,&HBFDB00 ' Not used
-		        case &HBFDC00,&HBFDC00 ' Serial data register (not used)
-		        case &HBFDD01,&HBFDD00 ' Interrupt control register
-		        case &HBFDE01,&HBFDE00 ' Control register A
-		        case &HBFDF01,&HBFDF00 ' Control register B
-		       end select
-		      case cast(uinteger,&HC00000)-cast(uinteger,&HD7FFFF) ' Pseudo-fast RAM
-		      case cast(uinteger,&HD80000)-cast(uinteger,&HDBFFFF) ' Reserved
-		      case cast(uinteger,&HDC0000)-cast(uinteger,&HDCFFFF) ' Real time clock (RTC)
-		      case cast(uinteger,&HDD0000)-cast(uinteger,&HDDFFFF) ' Reserved
-		      case cast(uinteger,&HDE0000)-cast(uinteger,&HDEFFFF) ' Mainboard resources
-		      case cast(uinteger,&HDF0000)-cast(uinteger,&HDFFFFF) ' Custom chip registers
-		      case cast(uinteger,&HE00000)-cast(uinteger,&HE7FFFF) ' Reserved
-		      case cast(uinteger,&HE80000)-cast(uinteger,&HE8FFFF) ' Auto-config space.
-		      case cast(uinteger,&HE90000)-cast(uinteger,&HEFFFFF) ' Secondary auto-config space (usually 64K I/O boards)
-		      case cast(uinteger,&HF00000)-cast(uinteger,&HFBFFFF) ' Reserved
-		      case cast(uinteger,&HFC0000)-cast(uinteger,&HFFFFFF) ' System ROM		       	        
-		     end select                     
-           case &HFF ' GPU
-             select case ram(adr + 1)
-              case &H01 ' set r0
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               ram(prgctr)=&H01: ram(prgctr+1)=r0: prgctr+=6
-              case &H02 ' set r1
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               ram(prgctr)=&H02: ram(prgctr+1)=r0: prgctr+=6
-              case &H03 ' set r2
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               ram(prgctr)=&H03: ram(prgctr+1)=r0: prgctr+=6
-              case &H04 ' set exitflag
-               ram(prgctr)=&H05: prgctr+=1
-              case &H05 ' compile inc
-               ram(prgctr)=&H06: prgctr+=1
-              case &H06 ' compile jump
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               ram(prgctr)=&H07: ram(prgctr+1)=r0: prgctr+=6
-              case &H07 ' compile sleep
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               ram(prgctr)=&H08: ram(prgctr+1)=r0: prgctr+=6
-              case &H08 ' compile getKey
-               ram(prgctr)=&H09: prgctr+=1
-              case &H09 ' compile checkKey
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               r1 = ram(adr +  6) * &H1000000 + ram(adr +  7) * &H10000 + ram(adr +  8) * &H100 + ram(adr +  9) ' r1             
-               ram(prgctr)=&HFF: ram(prgctr+1)=r0: ram(prgctr+2)=r1: prgctr+=10
-              case &H0A ' compile gfx
-               ram(prgctr)=&H04: prgctr+=1 
-              case &H0B to &H2A ' ALU
-               r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
-               r1 = ram(adr +  6) * &H1000000 + ram(adr +  7) * &H10000 + ram(adr +  8) * &H100 + ram(adr +  9) ' r1             
-               ram(prgctr)=(ram(adr + 1) - 1): ram(prgctr+1)=r0: ram(prgctr+2)=r1: prgctr+=10
-              case &HFF ' raster
-               r3 = ram(adr + 10) * &H1000000 + ram(adr + 11) * &H10000 + ram(adr + 12) * &H100 + ram(adr + 13) ' r3
-               prgctr=&HD022
-			   do        
-			    select case ram(prgctr)
-				 case &H01: r0 = ram(prgctr+1): prgctr+=1
-			     case &H02: r1 = ram(prgctr+1): prgctr+=1
-			     case &H03: r2 = ram(prgctr+1): prgctr+=1
-				 case &H04: const raster = 32: line vram(r3),(r1*raster,r0*raster)-((r1+1)*raster,(r0+1)*raster),r2,bf: prgctr+=1
-				 case &H05: exitflag = 1
-				 case &H06: r2 + = 1
-				 case &H07: prgctr = ram(prgctr+1)-1
-				 case &H08: sleep ram(prgctr+1),1: prgctr+=1
-				 case &H09: interface_keyboard = asc(inkey)
-				 case &H0A: r2 = r0  +  r1
-				 case &H0B: r2 = r0  -  r1
-				 case &H0C: r2 = r0  *  r1
-				 case &H0D: r2 = r0  /  r1
-				 case &H0E: r2 = r0  \  r1
-				 case &H0F: r2 = r0 and r1
-				 case &H10: r2 = r0 or  r1
-				 case &H11: r2 = r0 xor r1
-				 case &H12: r2 = r0 shl r1
-				 case &H13: r2 = r0 shr r1
-				 case &H14: if r0  =  r1 then r2 = 1 else r2 = 0
-				 case &H15: if r0  >  r1 then r2 = 1 else r2 = 0
-				 case &H16: if r0  <  r1 then r2 = 1 else r2 = 0
-				 case &H17: if r0  <> r1 then r2 = 1 else r2 = 0
-				 case &H18: if r0  =  r1 then prgctr = r3
-				 case &H19: if r0  >  r1 then prgctr = r3
-				 case &H1A: if r0  <  r1 then prgctr = r3
-				 case &H1B: if r0  <> r1 then prgctr = r3	
-				 case &H1C: r0 = r1
-				 case &H1D: r0 = r2
-				 case &H1E: r0 = r3
-				 case &H1F: r1 = r0
-				 case &H20: r1 = r2
-				 case &H21: r1 = r3
-				 case &H22: r2 = r0
-				 case &H23: r2 = r1
-				 case &H25: r2 = r3   
-				 case &H26: r3 = r0
-				 case &H27: r3 = r1
-				 case &H28: r3 = r2	
-				 case &H29: r2 = r0  ^  r1
-				 case &H2A: r2 = r0 mod r1
-				 case &H2B: r2 = r0 eqv r1
-				 case &H2D: r2 = r0 imp r1
-				 case &H2F: r2 = bit(r0, r1) 		 
-				 case &HFF: 
-				  if interface_keyboard = ram(prgctr+1) then
-					prgctr = ram(prgctr+2)-1
-				  end if
-				  prgctr+=2
-				 case else
-				  print "UNKNOWN OPCODE @";prgctr;" (OPCODE :";ram(prgctr);")";" -- REGISTERS : ";R0,r1,r2
-			    end select
-				prgctr+=1
-			  loop until exitflag = 1 
-		     end select                          
+		    adr2 = ram(adr +  1) * &H1000000 + ram(adr +  2) * &H10000 + ram(adr +  3) * &H100 + ram(adr +  4)
+		    r34  = ram(adr +  5) * &H1000000 + ram(adr +  6) * &H10000 + ram(adr +  7) * &H100 + ram(adr +  8)
+		    Poke64 adr2, r34                  
+           case &H21 ' set r0
+            r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+           case &H22 ' set r1
+            r1 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r1
+           case &H23 ' set r2
+            r2 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r2
+           case &H24 ' set r3
+            r3 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r3
+           case &H25 ' set r3
+            r4 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r4            
+           case &H26 ' raster
+		    line vram(r3),(r1,r0)-((r1+1),(r0+1)),r2,bf
+           case &H27 ' inc
+            r2 + = 1
+           case &H28 ' long jump
+            adr = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' adr  
+           case &H29 ' sleep
+            r0 = ram(adr +  2) * &H1000000 + ram(adr +  3) * &H10000 + ram(adr +  4) * &H100 + ram(adr +  5) ' r0
+            sleep r0,1
+		   case &H2A: r2 = r0  +  r1
+		   case &H2B: r2 = r0  -  r1
+		   case &H2C: r2 = r0  *  r1
+		   case &H2D: r2 = r0  /  r1
+		   case &H2E: r2 = r0  \  r1
+		   case &H2F: r2 = r0 and r1
+		   case &H30: r2 = r0 or  r1
+		   case &H31: r2 = r0 xor r1
+		   case &H32: r2 = r0 shl r1
+		   case &H33: r2 = r0 shr r1
+		   case &H34: if r0  =  r1 then r2 = 1 else r2 = 0
+		   case &H35: if r0  >  r1 then r2 = 1 else r2 = 0
+		   case &H36: if r0  <  r1 then r2 = 1 else r2 = 0
+		   case &H37: if r0  <> r1 then r2 = 1 else r2 = 0
+		   case &H38: if r0  =  r1 then adr = r3
+		   case &H39: if r0  >  r1 then adr = r3
+		   case &H3A: if r0  <  r1 then adr = r3
+		   case &H3B: if r0  <> r1 then adr = r3	
+		   case &H3C: r0 = r1
+		   case &H3D: r0 = r2
+		   case &H3E: r0 = r3
+		   case &H3F: r1 = r0
+		   case &H40: r1 = r2
+		   case &H41: r1 = r3
+		   case &H42: r2 = r0
+		   case &H43: r2 = r1
+		   case &H45: r2 = r3   
+		   case &H46: r3 = r0
+		   case &H47: r3 = r1
+		   case &H48: r3 = r2	
+		   case &H49: r2 = r0  ^  r1
+		   case &H4A: r2 = r0 mod r1
+		   case &H4B: r2 = r0 eqv r1
+		   case &H4D: r2 = r0 imp r1
+		   case &H4F: r2 = bit(r0, r1) 		 
  	  end select 
+     end select
+    case &H00000300 to &H000003FF ' Operating System and BASIC pointers
+    case &H00000400 to &H000007E7 ' Screen Memory
+      adr-=&H00000400
+      r32=r34:r32 shl=3
+      r0=adr mod 40:r0 shl =3:r0+=8*4
+      r1=adr  \  40:r1 shl =3:r1+=8*4
+      
+      if r18=8 then 
+         r3  = (r27 * 7 / 255) shl 5 + (r28 * 7 / 255) shl 2 + (r29 * 3 / 255)
+      elseif r17>8 then 
+         r3 = rgba(r27,r28,r29,r30)
+      else
+         r3 = col(adr)
+      end if
+        
+      screenlock
+      for r36 = 0 to 7
+        for r37 = 0 to 7
+          if char(r32) and (128 shr r37) then
+            pset(r0+r37,r1+r36),r3
+          else
+            pset(r0+r37,r1+r36),r2
+          end if
+        next
+        r32+=1
+      next
+      screenunlock r1,r1+8
+    case &H00000800 to &H00009FFF ' Free BASIC program storage area (38911 bytes)
+    case &H0000A000 to &H0000BFFF ' Free machine language program storage area (when switched-out with ROM)
+    case &H0000C000 to &H0000CFFF ' Free machine language program storage area
+    case &H0000D000 to &H0000D3FF ' Reserved for the VIC-II Registers
+     select case adr
+      case &H0000D000,&H0000D040 ' X Coordinate Sprite 0
+      case &H0000D001,&H0000D041 ' Y Coordinate Sprite 0
+      case &H0000D002,&H0000D042 ' X Coordinate Sprite 1
+      case &H0000D003,&H0000D043 ' Y Coordinate Sprite 1
+      case &H0000D004,&H0000D044 ' X Coordinate Sprite 2
+      case &H0000D005,&H0000D045 ' Y Coordinate Sprite 2
+      case &H0000D006,&H0000D046 ' X Coordinate Sprite 3
+      case &H0000D007,&H0000D047 ' Y Coordinate Sprite 3
+      case &H0000D008,&H0000D048 ' X Coordinate Sprite 4
+      case &H0000D009,&H0000D049 ' Y Coordinate Sprite 4
+      case &H0000D00A,&H0000D04A ' X Coordinate Sprite 5
+      case &H0000D00B,&H0000D04B ' Y Coordinate Sprite 5
+      case &H0000D00C,&H0000D04C ' X Coordinate Sprite 6
+      case &H0000D00D,&H0000D04D ' Y coordinate Sprite 6
+      case &H0000D00E,&H0000D04E ' X Coordinate Sprite 7
+      case &H0000D00F,&H0000D04F ' Y Coordinate Sprite 7
+      case &H0000D010,&H0000D050 ' MSBs of X coordinates
+      case &H0000D011,&H0000D051 ' Control register 1
+      case &H0000D012,&H0000D052 ' Raster counter
+      case &H0000D013,&H0000D053 ' Mouse X
+      case &H0000D014,&H0000D054 ' Mouse Y
+      case &H0000D015,&H0000D055 ' Sprite enabled
+      case &H0000D016,&H0000D056 ' Control register 2
+      case &H0000D017,&H0000D057 ' Sprite Y expansion
+      case &H0000D018,&H0000D058 ' Memory pointers
+      case &H0000D019,&H0000D059 ' Interrupt register
+      case &H0000D01A,&H0000D05A ' Interrupt enabled
+      case &H0000D01B,&H0000D05B ' Sprite data priority
+      case &H0000D01C,&H0000D05C ' Sprite multicolour
+      case &H0000D01D,&H0000D05D ' Sprite X expansion
+      case &H0000D01E,&H0000D05E ' Sprite-sprite collision
+      case &H0000D01F,&H0000D05F ' Sprite-data collision
+      case &H0000D020,&H0000D060 ' Border colour
+      case &H0000D021,&H0000D061 ' Background colour 0
+      case &H0000D022,&H0000D062 ' Background colour 1
+      case &H0000D023,&H0000D063 ' Background colour 2
+      case &H0000D024,&H0000D064 ' Background colour 3
+      case &H0000D025,&H0000D065 ' Sprite multicolour 0
+      case &H0000D026,&H0000D066 ' Sprite multicolour 1
+      case &H0000D027,&H0000D067 ' Sprite 0 Colour
+      case &H0000D028,&H0000D068 ' Sprite 1 Colour
+      case &H0000D029,&H0000D069 ' Sprite 2 Colour
+      case &H0000D02A,&H0000D06A ' Sprite 3 Colour
+      case &H0000D02B,&H0000D06B ' Sprite 4 Colour
+      case &H0000D02C,&H0000D06C ' Sprite 5 Colour
+      case &H0000D02D,&H0000D06D ' Sprite 6 Colour
+      case &H0000D02E,&H0000D06E ' Sprite 7 Colour  
+      case &H0000D02F to &H0000D03F,&H0000D06F-&H0000D07F
+       ram(adr) = &HFF
+     end select
+    case &H0000D400 to &H0000D7FF ' Reserved for 6581 SID Registers
+    case &H0000D800 to &H0000DBFF ' Color memory
+    case &H0000DC00 to &H0000DCFF ' Complex Interface Adapter 1 - 6526
+    case &H0000DD00 to &H0000DDFF ' Complex Interface Adapter 2 - 6526
+    case &H0000DE00 to &H0000DFFF ' Reserved for interface extensions
+     select case adr
+      case &H0000DE00 to &H0000DEFF ' I/O 1
+      case &H0000DF00 to &H0000DFFF ' I/O 2
+     end select
+    case &H0000E000 to &H0000FFFF ' Free machine language program storage area (when switched-out with ROM)
+    case &H00010000 to &H001FFFFF ' Chip RAM(or system ROM overlay)
+    case &H00200000 to &H005FFFFF ' PCI Express expansion space(I/O and Bits)
+    case &H00600000 to &H009FFFFF ' DDR5 SDRAM if present 
+    case &H00A00000 to &H00A1FFFF ' DDR5 SDRAM Attributes
+    case &H00A20000 to &H00A3FFFF ' DDR5 SDRAM I/O
+    case &H00A40000 to &H00A5FFFF ' DDR5 SDRAM Bits
+    case &H00A60000 to &H00A7FFFF ' PC I/O
+    case &H00A80000 to &H00B7FFFF ' DDR5 SDRAM Bits
+    case &H00B80000 to &H00BEFFFF '	PCI Express Attributes
+    case &H00BF0000 to &H00BFFFFF ' 8520 Complex Interface Adapters
+    case &H00C00000 to &H00CFFFFF ' C00000 Memory
+    case &H00D00000 to &H00D7FFFF ' PC memory
+    case &H00D80000 to &H00D8FFFF ' SPARE chip select
+    case &H00D90000 to &H00D9FFFF ' ARCNET chip select
+    case &H00DA0000 to &H00DA3FFF ' SATA drive
+    case &H00DA4000 to &H00DA4FFF ' SATA reserved
+    case &H00DA8000 to &H00DAFFFF ' DDR5 SDRAM and SATA configregisters
+    case &H00DB0000 to &H00DBFFFF ' Not used(reserved for external SATA)
+    case &H00DC0000 to &H00DCFFFF ' Real Time Clock(RTC)
+    case &H00DD0000 to &H00DDFFFF ' DMA controller
+    case &H00DE0000 to &H00DEFFFF ' PCI Express configregisters
+    case &H00DF0000 to &H00DFFFFF ' 64 KB Chip Registers
+     select case adr
+      case &H00DFF000 ' Blitter destination early read
+      case &H00DFF002 ' DMA control (and blitter status) read
+      case &H00DFF004 ' Read vertical raster position bit 9 (and interlace odd/even frame)
+     end select
+    case &H00E00000 to &H00E7FFFF ' System ROM(lst half if 1MB ROM)
+    case &H00E80000 to &H00EFFFFF ' Configuration and I/O card space
+    case &H00F00000 to &H00F7FFFF ' Flash ROM space
+    case &H00F80000 to &H00FFFFFF ' System ROM(2nd half if 1MB ROM)
   end select
 end sub
 
